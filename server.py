@@ -5,26 +5,36 @@ from constants import HOST, PORT
 
 class Server:
     def __init__(self) -> None:
-        self.__clients = []
+        self.__clients: list[socket.socket] = []
         self.__client_messages = []
         return None
 
     def handle_clients(self) -> None:
         return None
 
-    def handle_client_connection(self, client_conn, client_addr):
+    def handle_client_connection(self, client_socket, client_addr):
         while True:
-            received_message = client_conn.recv(1024).decode()
-            if not received_message:
+            try:
+                received_message = client_socket.recv(1024).decode()
+
+                # https://docs.python.org/3/library/socket.html#socket.socket.recvmsg
+                # A returned empty bytes object indicates that the client/server has disconnected
+                if not received_message:
+                    print(f"Connection from: {str(client_addr)} closed")
+                    break
+
+                print(f"[{client_addr}]: ", received_message)
+                for client in self.__clients:
+                    client.send(received_message.encode())
+
+            except Exception as e:
+                print("[Server Exception (Error client handling)]:", e)
+                client_socket.close()
                 print(f"Connection from: {str(client_addr)} closed")
-                # TODO remove client for __clients
                 break
 
-            print(f"[{client_addr}]: ", received_message)
-            for client_socket in self.__clients:
-                client_socket.send(received_message.encode())
-
-        client_conn.close()
+        if client_socket in self.__clients:
+            self.__clients.remove(client_socket)
 
     def start(self) -> None:
         with socket.socket() as stream:
@@ -45,10 +55,11 @@ class Server:
                     )
 
                     client_thread.start()
-                    client_thread.join()
 
             except Exception as e:
                 print(e)
+                for client in self.__clients:
+                    client.close()
 
 
 if __name__ == "__main__":
