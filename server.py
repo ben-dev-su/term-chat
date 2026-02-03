@@ -1,4 +1,5 @@
 import socket
+import sys
 import threading
 from constants import HOST, PORT
 
@@ -7,11 +8,13 @@ class Server:
     def __init__(self) -> None:
         self.clients: list[socket.socket] = []
         self.client_messages: list[str] = []
+        self.client_threads: list[threading.Thread] = []
         return None
 
     def handle_client_connection(
         self, client_socket: socket.socket, client_addr: socket._RetAddress
     ) -> None:
+
         while True:
             try:
                 client_message: str = client_socket.recv(1024).decode()
@@ -34,6 +37,7 @@ class Server:
                 break
 
         if client_socket in self.clients:
+            # TODO: lock
             self.clients.remove(client_socket)
 
     def broadcast_message(self, message: str) -> None:
@@ -43,27 +47,44 @@ class Server:
     def start(self) -> None:
         with socket.socket() as stream:
             try:
+                stream.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 stream.bind((HOST, PORT))
                 stream.listen(5)
                 print(f"Server running on {HOST}:{PORT}")
 
                 while True:
-                    print("Waiting for connection...")
-                    client_socket, client_addr = stream.accept()
-                    print(f"Connected to client: {client_addr}")
 
-                    self.clients.append(client_socket)
-                    client_thread = threading.Thread(
-                        target=self.handle_client_connection,
-                        args=(client_socket, client_addr),
-                    )
+                    try:
 
-                    client_thread.start()
+                        print("Waiting for connection...")
+                        client_socket, client_addr = stream.accept()
+                        print(f"Connected to client: {client_addr}")
 
-            except Exception as e:
-                print(e)
+                        # TODO: lock
+                        self.clients.append(client_socket)
+
+                        client_thread = threading.Thread(
+                            target=self.handle_client_connection,
+                            args=(client_socket, client_addr),
+                        )
+                        client_thread.daemon = True
+                        client_thread.start()
+
+                    # TODO: Catch specific networking errors
+                    except Exception as e:
+                        print("Server Error:", e)
+            except KeyboardInterrupt:
+
                 for client in self.clients:
-                    client.close()
+                    try:
+                        client.shutdown(socket.SHUT_WR)
+                        client.close()
+                    except Exception as e:
+                        print("Error closing connection:", e)
+                print("All connections closed")
+                sys.exit(0)
+            except Exception as e:
+                print("Server Error:", e)
 
 
 if __name__ == "__main__":
