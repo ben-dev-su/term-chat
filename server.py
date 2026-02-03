@@ -5,27 +5,27 @@ from constants import HOST, PORT
 
 class Server:
     def __init__(self) -> None:
-        self.__clients: list[socket.socket] = []
-        self.__client_messages = []
+        self.clients: list[socket.socket] = []
+        self.client_messages: list[str] = []
         return None
 
-    def handle_clients(self) -> None:
-        return None
-
-    def handle_client_connection(self, client_socket, client_addr):
+    def handle_client_connection(
+        self, client_socket: socket.socket, client_addr: socket._RetAddress
+    ) -> None:
         while True:
             try:
-                received_message = client_socket.recv(1024).decode()
+                client_message: str = client_socket.recv(1024).decode()
 
                 # https://docs.python.org/3/library/socket.html#socket.socket.recvmsg
                 # A returned empty bytes object indicates that the client/server has disconnected
-                if not received_message:
+                if not client_message:
                     print(f"Connection from: {str(client_addr)} closed")
                     break
 
-                print(f"[{client_addr}]: ", received_message)
-                for client in self.__clients:
-                    client.send(received_message.encode())
+                # TODO: Use logging
+                print(f"[{client_addr}]: ", client_message)
+
+                self.broadcast_message(client_message)
 
             except Exception as e:
                 print("[Server Exception (Error client handling)]:", e)
@@ -33,8 +33,12 @@ class Server:
                 print(f"Connection from: {str(client_addr)} closed")
                 break
 
-        if client_socket in self.__clients:
-            self.__clients.remove(client_socket)
+        if client_socket in self.clients:
+            self.clients.remove(client_socket)
+
+    def broadcast_message(self, message: str) -> None:
+        for client in self.clients:
+            client.send(message.encode())
 
     def start(self) -> None:
         with socket.socket() as stream:
@@ -48,7 +52,7 @@ class Server:
                     client_socket, client_addr = stream.accept()
                     print(f"Connected to client: {client_addr}")
 
-                    self.__clients.append(client_socket)
+                    self.clients.append(client_socket)
                     client_thread = threading.Thread(
                         target=self.handle_client_connection,
                         args=(client_socket, client_addr),
@@ -58,7 +62,7 @@ class Server:
 
             except Exception as e:
                 print(e)
-                for client in self.__clients:
+                for client in self.clients:
                     client.close()
 
 
