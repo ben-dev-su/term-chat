@@ -8,44 +8,69 @@ from constants import HOST, PORT
 class Server:
     def __init__(self) -> None:
         self.clients: list[socket.socket] = []
+        # TODO: keep track of the message history
         self.client_messages: list[str] = []
-        self.client_threads: list[threading.Thread] = []
         self.lock: threading.Lock = threading.Lock()
 
     def handle_client_connection(
         self, client_socket: socket.socket, client_addr: socket._RetAddress
     ) -> None:
 
-        while True:
-            try:
-                client_message: str = client_socket.recv(1024).decode()
+        try:
+            while True:
+                try:
+                    # TODO: better data handling. recv peek-flag, add header in the client
+                    data = client_socket.recv(1024)
+                except OSError:
+                    print("Unexpected Network error while receiving data")
+                    break
 
                 # https://docs.python.org/3/library/socket.html#socket.socket.recvmsg
                 # A returned empty bytes object indicates that the client/server has disconnected
-                if not client_message:
+                if not data:
                     print(f"Connection from: {str(client_addr)} closed")
                     break
+
+                try:
+                    client_message: str = data.decode()
+                except UnicodeDecodeError:
+                    print("Decoding Error")
+                    continue
 
                 # TODO: Use logging
                 print(f"[{client_addr}]: ", client_message)
-
                 self.broadcast_message(client_message)
 
-            except Exception as e:
-                print("[Server Exception (Error client handling)]:", e)
-                if not client_socket._closed:
-                    client_socket.close()
-                    print(f"Connection from: {str(client_addr)} closed")
-                    break
+        except Exception as e:
+            print(f"Unexpected Client {client_addr} Error: {e}")
 
-        if client_socket in self.clients:
+        finally:
+
+            try:
+                client_socket.close()
+                print(f"Connection from: {str(client_addr)} closed")
+            except OSError:
+                print("Unexpected Error trying to close client socket")
+
             with self.lock:
-                self.clients.remove(client_socket)
+                if client_socket in self.clients:
+                    self.clients.remove(client_socket)
 
     def broadcast_message(self, message: str) -> None:
+        data = b""
+        try:
+            # TODO: better message handling
+            data = message.encode()
+        except UnicodeEncodeError:
+            print("Encoding Error")
+            return
+
         with self.lock:
             for client in self.clients:
-                client.send(message.encode())
+                try:
+                    client.sendall(data)
+                except Exception:
+                    print(f"Failed to send the message {message}")
 
     def graceful_server_shutdown(self) -> None:
         print("Shutting down")
