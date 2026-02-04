@@ -9,7 +9,7 @@ class Server:
         self.clients: list[socket.socket] = []
         self.client_messages: list[str] = []
         self.client_threads: list[threading.Thread] = []
-        return None
+        self.lock: threading.Lock = threading.Lock()
 
     def handle_client_connection(
         self, client_socket: socket.socket, client_addr: socket._RetAddress
@@ -37,12 +37,13 @@ class Server:
                 break
 
         if client_socket in self.clients:
-            # TODO: lock
-            self.clients.remove(client_socket)
+            with self.lock:
+                self.clients.remove(client_socket)
 
     def broadcast_message(self, message: str) -> None:
-        for client in self.clients:
-            client.send(message.encode())
+        with self.lock:
+            for client in self.clients:
+                client.send(message.encode())
 
     def start(self) -> None:
         with socket.socket() as stream:
@@ -60,8 +61,8 @@ class Server:
                         client_socket, client_addr = stream.accept()
                         print(f"Connected to client: {client_addr}")
 
-                        # TODO: lock
-                        self.clients.append(client_socket)
+                        with self.lock:
+                            self.clients.append(client_socket)
 
                         client_thread = threading.Thread(
                             target=self.handle_client_connection,
@@ -75,13 +76,15 @@ class Server:
                         print("Server Error:", e)
             except KeyboardInterrupt:
 
-                for client in self.clients:
-                    try:
-                        client.shutdown(socket.SHUT_WR)
-                        client.close()
-                    except Exception as e:
-                        print("Error closing connection:", e)
-                print("All connections closed")
+                with self.lock:
+                    for client in self.clients:
+                        try:
+                            client.shutdown(socket.SHUT_WR)
+                            client.close()
+                        except Exception as e:
+                            print("Error closing connection:", e)
+                    print("All connections closed")
+
                 sys.exit(0)
             except Exception as e:
                 print("Server Error:", e)
