@@ -1,3 +1,4 @@
+import errno
 import socket
 import sys
 import threading
@@ -32,9 +33,10 @@ class Server:
 
             except Exception as e:
                 print("[Server Exception (Error client handling)]:", e)
-                client_socket.close()
-                print(f"Connection from: {str(client_addr)} closed")
-                break
+                if not client_socket._closed:
+                    client_socket.close()
+                    print(f"Connection from: {str(client_addr)} closed")
+                    break
 
         if client_socket in self.clients:
             with self.lock:
@@ -45,6 +47,22 @@ class Server:
             for client in self.clients:
                 client.send(message.encode())
 
+    def graceful_server_shutdown(self) -> None:
+        print("Shutting down")
+        with self.lock:
+            clients_to_close: list[socket.socket] = self.clients[:]
+            self.clients.clear()
+
+        for client in clients_to_close:
+            try:
+                if not client._closed:
+                    client.shutdown(socket.SHUT_WR)
+                    client.close()
+            except Exception as e:
+                print("Error closing connection:", e)
+        print("All connections closed")
+        sys.exit(0)
+
     def start(self) -> None:
         with socket.socket() as stream:
             try:
@@ -52,11 +70,8 @@ class Server:
                 stream.bind((HOST, PORT))
                 stream.listen(5)
                 print(f"Server running on {HOST}:{PORT}")
-
                 while True:
-
                     try:
-
                         print("Waiting for connection...")
                         client_socket, client_addr = stream.accept()
                         print(f"Connected to client: {client_addr}")
@@ -71,23 +86,28 @@ class Server:
                         client_thread.daemon = True
                         client_thread.start()
 
-                    # TODO: Catch specific networking errors
+                    except OSError as e:
+                        if e.errno == errno.ECONNABORTED:
+                            print("Client aborted the connection")
+                        elif e.errno == errno.ECONNRESET:
+                            print("Client closed the connection")
+                        elif e.errno == errno.EPIPE:
+                            print("Broken Pipe. Client disconnected")
+                        else:
+                            print(f"Unexpected Network Error {e}")
+
+                        continue
+
                     except Exception as e:
-                        print("Server Error:", e)
+                        print(f"Unexpected Network Error {e}")
+
             except KeyboardInterrupt:
-
-                with self.lock:
-                    for client in self.clients:
-                        try:
-                            client.shutdown(socket.SHUT_WR)
-                            client.close()
-                        except Exception as e:
-                            print("Error closing connection:", e)
-                    print("All connections closed")
-
-                sys.exit(0)
+                self.graceful_server_shutdown()
+            except OSError as e:
+                if e.errno == errno.EADDRINUSE:
+                    print("Address in use")
             except Exception as e:
-                print("Server Error:", e)
+                print(f"Unexpected Network Error {e}")
 
 
 if __name__ == "__main__":
